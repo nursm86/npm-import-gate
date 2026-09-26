@@ -1,0 +1,11 @@
+node_modules/
+.npm/
+*.log
+.DS_Store
+gate-report.*
+evaluation/work/
+evaluation/results/*.csv
+!evaluation/results/.gitkeep
+reconstructions/*/node_modules/
+testbed/node_modules/
+sandbox/scratch/

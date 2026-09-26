@@ -1,0 +1,30 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Use npm 12 (install scripts blocked by default)
+        run: npm install -g npm@12 && npm --version
+      - name: Install with lockfile
+        run: npm ci
+      - name: Audit (no high or critical allowed)
+        run: npm audit --audit-level=high
+      - name: Unit tests
+        run: npm test
+      - name: Self-scan (static layer)
+        run: node src/cli.js scan . --format md

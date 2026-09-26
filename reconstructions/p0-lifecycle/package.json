@@ -1,0 +1,11 @@
+{
+  "name": "@recon/p0-lifecycle",
+  "version": "1.0.0",
+  "description": "date formatting helpers",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node setup.js"
+  },
+  "keywords": ["date", "format", "helpers"]
+}

@@ -1,0 +1,18 @@
+{
+  "name": "gate-testbed",
+  "version": "1.0.0",
+  "description": "A small service the gate is run against in CI: real public dependencies plus the local reconstruction fixtures",
+  "type": "module",
+  "main": "server.js",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "helmet": "^8.1.0"
+  }
+}

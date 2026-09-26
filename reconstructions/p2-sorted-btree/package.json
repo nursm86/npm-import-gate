@@ -1,0 +1,8 @@
+{
+  "name": "@recon/p2-sorted-btree",
+  "version": "1.0.0",
+  "description": "a fast sorted B-tree data structure",
+  "main": "index.js",
+  "license": "MIT",
+  "keywords": ["btree", "b-tree", "sorted", "map", "data-structure"]
+}

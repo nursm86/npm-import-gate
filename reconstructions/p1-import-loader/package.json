@@ -1,0 +1,8 @@
+{
+  "name": "@recon/p1-import-loader",
+  "version": "1.0.0",
+  "description": "helpers for formatting api responses",
+  "main": "index.js",
+  "license": "MIT",
+  "keywords": ["helpers", "format", "api"]
+}

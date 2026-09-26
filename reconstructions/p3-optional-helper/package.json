@@ -1,0 +1,11 @@
+{
+  "name": "@recon/p3-optional-helper",
+  "version": "1.0.0",
+  "description": "small string utilities",
+  "main": "index.js",
+  "license": "MIT",
+  "optionalDependencies": {
+    "@recon/p3-native-ext": "git+https://sinkhole.invalid/p3-native-ext.git"
+  },
+  "keywords": ["string", "utils"]
+}
