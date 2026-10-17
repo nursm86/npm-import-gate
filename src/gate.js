@@ -5,7 +5,7 @@ import { DEFAULT_THRESHOLDS } from './config/constants.js';
 import { readLockfile, toPackageNodes } from './resolve/lockfile.js';
 import { evaluateLockfileNode } from './resolve/lockfile-rules.js';
 import { analyzePackageDirectory } from './static/analyze-package.js';
-import { scorePackage } from './static/scoring.js';
+import { scorePackage, scoringContext } from './static/scoring.js';
 import { summarise, verdictFor } from './score/aggregate.js';
 import { runDynamicAnalysis } from './dynamic/sandbox.js';
 import { logger } from './util/logger.js';
@@ -45,7 +45,7 @@ export async function runGate(projectDir, options = {}) {
   for (const node of nodes) {
     const lockfileFindings = evaluateLockfileNode(node, { allowedRegistryHosts: options.allowedRegistryHosts });
     const analysis = await analyzePackageDirectory(node.dir);
-    const scored = scorePackage(analysis.findings, lockfileFindings, analysis.purpose);
+    const scored = scorePackage(analysis.findings, lockfileFindings, analysis.purpose, scoringContext(analysis));
 
     let dynamic;
     if (options.dynamic) {

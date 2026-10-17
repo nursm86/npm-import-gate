@@ -13,6 +13,9 @@ export const SCAN_LIMITS = Object.freeze({
 
 export const SOURCE_EXTENSIONS = Object.freeze(['.js', '.cjs', '.mjs']);
 
+/** When a finding's code runs: from a lifecycle script at install time, or when the package is imported or used. */
+export const EXECUTED_AT = Object.freeze({ INSTALL: 'install', IMPORT_OR_RUNTIME: 'import-or-runtime' });
+
 /**
  * Directories that ship inside npm tarballs but do not run when the package is imported. Code here
  * is not part of the consumer-facing surface, so scanning it produces false positives (a logger's
@@ -78,14 +81,42 @@ export const C2_INDICATORS = Object.freeze([
   { id: 'tunnel', pattern: /ngrok(?:-free)?\.(?:io|app|dev)|serveo\.net|localtunnel/ },
   { id: 'tor', pattern: /\.onion\b/ },
   { id: 'raw-ip-url', pattern: /https?:\/\/\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\// },
-  { id: 'interactsh-oast', pattern: /oast\.(?:fun|live|me|pro|site|online)|interact\.sh|burpcollaborator|canarytokens/ },
+  { id: 'interactsh-oast', pattern: /oast\.(?:fun|live|me|pro|site|online)|oastify\.com|interact\.sh|burpcollaborator|canarytokens/ },
+  { id: 'request-catcher', pattern: /webhook\.site|beeceptor\.com|requestbin\.(?:com|net)|pipedream\.net|requestcatcher\.com|hookbin\.com|postb\.in|mockbin\.org|ptsv2\.com|requestrepo\.com/ },
 ]);
+
+/**
+ * Rules for the *command strings* of preinstall, install and postinstall scripts. npm v12 blocks
+ * these by default, yet a reviewer deciding whether to allow-list a package needs the gate to fail
+ * when the command itself is the payload (curl to a collaborator domain, `$(whoami)`, rm -rf /).
+ * Matched against the raw command; findings carry module scope and executedAt 'install'.
+ */
+export const SCRIPT_COMMAND_RULES = Object.freeze([
+  { id: 'script.shell-download', family: 'process', pattern: SHELL_DOWNLOAD_PATTERN },
+  {
+    id: 'script.host-exfil',
+    family: 'process',
+    pattern: /\$\(\s*(?:whoami|hostname|pwd|id|env|cat|gh\s+auth\s+token)\b|`\s*(?:whoami|hostname|pwd|id|env)\s*`|\/etc\/(?:passwd|shadow)|~?\/\.(?:ssh|npmrc|aws|git-credentials)\b/,
+  },
+  {
+    id: 'script.destructive',
+    family: 'process',
+    pattern: /\brm\s+-[a-z]*r[a-z]*\s+(?:--no-preserve-root\s+)?(?:\/\*?|~|\$HOME|\*)(?:\s|$)|--no-preserve-root|\brm\s+\/s\b|\bdel\s+\/[fsq]\b|\bmkfs\.|\bdd\s+if=/i,
+  },
+  { id: 'script.inline-code', family: 'process', pattern: /\b(?:node|bun|deno)\s+(?:-e|--eval|-p|--print)\b|\bpython3?\s+-c\b|\bperl\s+-e\b|\beval\s/ },
+  { id: 'script.encoded', family: 'decode', pattern: /\bbase64\b|\batob\(|\bfromCharCode\b|(?:\\x[0-9a-f]{2}){4}/i },
+]);
+
+/** Inline JavaScript handed to node -e / --eval / -p / --print; parsed like a source file. */
+export const INLINE_SCRIPT_PATTERN = /\b(?:node|bun|deno)\s+(?:-e|--eval|-p|--print)\s+(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')/;
 
 export const OBFUSCATION = Object.freeze({
   hexIdentifierPattern: /_0x[0-9a-f]{4,}/g,
   minHexIdentifiers: 5,
   minHighEntropyStringLength: 400,
   minEntropyBitsPerChar: 4.8,
+  /** javascript-obfuscator wraps its string-array rotation in `while (!![]) { try { parseInt(...) } ... }`. */
+  stringArrayRotationPattern: /while\s*\(\s*!!\[\]\s*\)/,
 });
 
 /**
@@ -127,10 +158,16 @@ export const CAPABILITY_WEIGHTS = Object.freeze({
   'code.dynamic': 25,
   'decode.base64': 10,
   'indicator.c2': 30,
+  'script.shell-download': 25,
+  'script.host-exfil': 30,
+  'script.destructive': 30,
+  'script.inline-code': 10,
+  'script.encoded': 10,
   'os.fingerprint': 10,
   'require.dynamic': 5,
   'worker.spawn': 5,
   'obfuscation.identifiers': 15,
+  'obfuscation.string-array': 20,
   'obfuscation.high-entropy': 10,
   'parse.error': 2,
 });
@@ -144,6 +181,30 @@ export const CONTEXT_MULTIPLIERS = Object.freeze({
 
 export const PURPOSE_MISMATCH_MULTIPLIER = 1.5;
 export const PURPOSE_MISMATCH_FAMILIES = Object.freeze(['process', 'net', 'dns', 'env', 'code', 'decode']);
+
+/**
+ * A package with one or two source files and a process, network, DNS, dynamic-code or environment
+ * capability has little else to be for. Legitimate one-file packages are overwhelmingly pure logic.
+ */
+export const TINY_PACKAGE_RULE = Object.freeze({
+  id: 'size.tiny-with-capability',
+  maxFilesScanned: 2,
+  boost: 20,
+  families: ['process', 'net', 'dns', 'code', 'env'],
+});
+
+/**
+ * Packages that install a `bin` entry, or describe themselves as a tool, spawn processes, read the
+ * environment and evaluate code by design. Their import-time and runtime findings in those families
+ * are discounted. Install-time findings are not: npm v12 blocks install scripts for tools too, and
+ * the allow-list decision needs the full score.
+ */
+export const DECLARED_TOOL_DISCOUNT = Object.freeze({
+  id: 'context.declared-tool',
+  multiplier: 0.5,
+  families: ['process', 'env', 'code'],
+  appliesToInferredTool: true,
+});
 
 /** Findings from the lockfile itself. */
 export const LOCKFILE_RULE_WEIGHTS = Object.freeze({

@@ -11,7 +11,8 @@ import { appendFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/p
 import path from 'node:path';
 import { DEFAULT_THRESHOLDS, LOCKFILE_RULE_WEIGHTS } from '../src/config/constants.js';
 import { analyzePackageDirectory } from '../src/static/analyze-package.js';
-import { scorePackage } from '../src/static/scoring.js';
+import { hasLifecycleScript } from '../src/static/lifecycle-scripts.js';
+import { scorePackage, scoringContext } from '../src/static/scoring.js';
 import { verdictFor } from '../src/score/aggregate.js';
 import { runDynamicAnalysis } from '../src/dynamic/sandbox.js';
 import { classifyResult } from './lib/classify.mjs';
@@ -20,7 +21,6 @@ import {
   csvLine, parseCsv, parseFlags, readJsonIfExists,
 } from './lib/work.mjs';
 
-const LIFECYCLE = ['preinstall', 'install', 'postinstall'];
 const HEADERS = [
   'name', 'set', 'category', 'truth', 'isMalicious', 'date', 'postGa', 'hasInstallScript',
   'staticScore', 'dynamicDelta', 'score', 'verdict', 'flagged', 'technique', 'topRule', 'patterns',
@@ -67,9 +67,8 @@ async function buildWorklist(setFilter) {
   return items;
 }
 
-async function lifecycleFinding(manifest) {
-  const scripts = manifest.scripts ?? {};
-  const hasInstallScript = LIFECYCLE.some((name) => typeof scripts[name] === 'string');
+function lifecycleFinding(manifest) {
+  const hasInstallScript = hasLifecycleScript(manifest);
   const finding = hasInstallScript
     ? [{ rule: 'lockfile.lifecycle-script', weight: LOCKFILE_RULE_WEIGHTS['lockfile.lifecycle-script'], detail: 'declares a lifecycle script' }]
     : [];
@@ -79,8 +78,8 @@ async function lifecycleFinding(manifest) {
 async function scanOne(item, dynamic) {
   const started = performance.now();
   const analysis = await analyzePackageDirectory(item.dir);
-  const { hasInstallScript, finding } = await lifecycleFinding(analysis.manifest);
-  const scored = scorePackage(analysis.findings, finding, analysis.purpose);
+  const { hasInstallScript, finding } = lifecycleFinding(analysis.manifest);
+  const scored = scorePackage(analysis.findings, finding, analysis.purpose, scoringContext(analysis));
   const staticScore = scored.score;
 
   let dynamicDelta = 0;

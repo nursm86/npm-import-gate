@@ -107,6 +107,25 @@ test('decode chain and obfuscated identifiers are reported', () => {
   assert.equal(byCapability(findings, 'obfuscation.identifiers').length, 1);
 });
 
+test('the javascript-obfuscator rotation loop is reported even when identifiers are not _0x-style', () => {
+  const source = `
+    (function (R, Z) {
+      const o = R();
+      while (!![]) {
+        try {
+          const N = -parseInt(o[0]) / (-0x1 * -0x15ff + -0x640 + -0x193 * 0xa) + parseInt(o[1]) / (-0x26f8 + -0xdff + -0x47 * -0xbf);
+          if (N === Z) break; else o.push(o.shift());
+        } catch (J) { o.push(o.shift()); }
+      }
+    })(() => ['a', 'b'], 0x1a2b);
+  `;
+  const findings = analyse(source);
+  assert.equal(byCapability(findings, 'obfuscation.string-array').length, 1);
+  assert.equal(byCapability(findings, 'obfuscation.string-array')[0].scope, 'module');
+  assert.equal(byCapability(findings, 'obfuscation.identifiers').length, 0);
+  assert.equal(byCapability(analyse('while (queue.length) { queue.shift()(); }'), 'obfuscation.string-array').length, 0);
+});
+
 test('sensitive file reads are flagged, ordinary reads are not', () => {
   const source = `
     const fs = require('fs');
