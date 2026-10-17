@@ -42,10 +42,32 @@ node src/cli.js scan .                   # Markdown to stdout, static only
 node src/cli.js scan . --dynamic         # add the sandbox layer (Docker required)
 node src/cli.js scan . --format sarif --out gate.sarif
 node src/cli.js scan . --fail 50 --warn 25 --only lodash,express
+node src/cli.js scan . --allow esbuild   # excuse a reviewed package for one run
 node src/cli.js rules                    # the rule catalogue as a Markdown table
 ```
 
 Requires Node 22 or newer. The sandbox uses the `node:24-bookworm-slim` image.
+
+### Reviewed exceptions
+
+Static capability rules flag some legitimate packages (build tools, loaders, telemetry). The
+place for a reviewed exception is the project's `package.json`, so it is committed and appears in
+code review like the `npm approve-scripts` allow-list. Every entry needs a reason:
+
+```json
+"importGate": {
+  "allow": [
+    { "name": "real-require", "reason": "pino dependency: dynamic import shim for bundlers; reviewed 17 Oct 2026" }
+  ]
+}
+```
+
+Allowed packages are still scanned and listed in the report with their score and the reason; they
+do not fail the job, and their SARIF results are downgraded to notes. This repository carries the
+entry above: `real-require`, pulled in by the logger, builds a dynamic import with `new Function`
+so bundlers cannot rewrite it, which the gate scores as module-scope dynamic code in a one-file
+package. That is the false-positive shape the evaluation discusses, and the self-scan in CI shows
+how a team records the decision instead of switching the gate off.
 
 ## What it does not claim
 

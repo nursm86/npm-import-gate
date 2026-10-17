@@ -13,10 +13,12 @@ const USAGE = `npm-import-gate
 Usage:
   import-gate scan [projectDir] [--format json|md|sarif] [--out file]
                    [--fail N] [--warn N] [--dynamic] [--only a,b] [--prod-only]
-                   [--registry-host host ...]
+                   [--allow a,b] [--registry-host host ...]
   import-gate rules [--format md|json]
 
 Exit codes: 0 pass or warn, 1 fail, 2 error.
+Reviewed exceptions live in the project's package.json under "importGate": {"allow": [{"name", "reason"}]};
+--allow adds names for one run. Allowed packages are still scanned and reported.
 `;
 
 const ScanOptionsSchema = z.object({
@@ -27,9 +29,12 @@ const ScanOptionsSchema = z.object({
   warn: z.coerce.number().int().min(0).max(100).default(DEFAULT_THRESHOLDS.warn),
   dynamic: z.boolean().default(false),
   only: z.string().optional(),
+  allow: z.string().optional(),
   prodOnly: z.boolean().default(false),
   registryHost: z.array(z.string()).default([]),
 });
+
+const splitNames = (list) => (list ? list.split(',').map((name) => name.trim()).filter(Boolean) : undefined);
 
 function parseCli(argv) {
   const { values, positionals } = parseArgs({
@@ -42,6 +47,7 @@ function parseCli(argv) {
       warn: { type: 'string' },
       dynamic: { type: 'boolean' },
       only: { type: 'string' },
+      allow: { type: 'string' },
       'prod-only': { type: 'boolean' },
       'registry-host': { type: 'string', multiple: true },
       help: { type: 'boolean', short: 'h' },
@@ -69,13 +75,15 @@ async function runScan(projectDir, values) {
     warn: values.warn,
     dynamic: values.dynamic,
     only: values.only,
+    allow: values.allow,
     prodOnly: values['prod-only'],
     registryHost: values['registry-host'],
   });
   const report = await runGate(options.projectDir, {
     thresholds: { fail: options.fail, warn: options.warn },
     dynamic: options.dynamic,
-    only: options.only ? options.only.split(',').map((name) => name.trim()).filter(Boolean) : undefined,
+    only: splitNames(options.only),
+    allow: splitNames(options.allow),
     includeDev: !options.prodOnly,
     allowedRegistryHosts: options.registryHost.length ? options.registryHost : undefined,
   });
