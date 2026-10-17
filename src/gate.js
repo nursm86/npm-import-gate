@@ -57,7 +57,8 @@ export async function runGate(projectDir, options = {}) {
 
     packages.push({
       name: node.name,
-      version: node.version,
+      // Linked (file:) dependencies carry no version in the lockfile; fall back to the manifest.
+      version: node.version === 'unknown' ? (analysis.manifest.version ?? 'unknown') : node.version,
       lockKey: node.lockKey,
       purpose: analysis.purpose,
       score: scored.score,
