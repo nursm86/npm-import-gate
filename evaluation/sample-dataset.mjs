@@ -131,14 +131,30 @@ function sparseCheckout(zipPaths) {
   git(['checkout', '--quiet', 'main']);
 }
 
-async function findPackageRoot(dir, depth = 0) {
-  const entries = await readdir(dir, { withFileTypes: true });
-  if (entries.some((entry) => entry.isFile() && entry.name === 'package.json')) return dir;
-  if (depth >= 3) return null;
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const found = await findPackageRoot(path.join(dir, entry.name), depth + 1);
-    if (found) return found;
+const MAX_PACKAGE_ROOT_DEPTH = 8;
+
+/**
+ * Breadth-first search for the shallowest directory holding a package.json. The dataset's zips
+ * unpack to paths like tmp/<random>/<name>/package/package.json, and many samples bundle further
+ * package.json files deeper down (vendored code, fixtures), so "shallowest" picks the package itself.
+ */
+async function findPackageRoot(startDir) {
+  let frontier = [startDir];
+  for (let depth = 0; depth <= MAX_PACKAGE_ROOT_DEPTH && frontier.length; depth += 1) {
+    const next = [];
+    for (const dir of frontier) {
+      let entries;
+      try {
+        entries = await readdir(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      if (entries.some((entry) => entry.isFile() && entry.name === 'package.json')) return dir;
+      for (const entry of entries) {
+        if (entry.isDirectory() && entry.name !== 'node_modules') next.push(path.join(dir, entry.name));
+      }
+    }
+    frontier = next;
   }
   return null;
 }
