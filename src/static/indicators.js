@@ -32,3 +32,8 @@ export function countHexIdentifiers(sourceText) {
 export function hasObfuscatedIdentifiers(sourceText) {
   return countHexIdentifiers(sourceText) >= OBFUSCATION.minHexIdentifiers;
 }
+
+/** The string-array rotation loop that javascript-obfuscator emits; not produced by minifiers or bundlers. */
+export function hasStringArrayRotation(sourceText) {
+  return OBFUSCATION.stringArrayRotationPattern.test(sourceText);
+}

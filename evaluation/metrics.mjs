@@ -6,7 +6,7 @@ import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DEFAULT_THRESHOLDS } from '../src/config/constants.js';
 import { asPercent, evaluate, recallByTechnique } from './lib/metrics.mjs';
-import { BASELINES_CSV, EVIDENCE_RESULTS_DIR, GATE_RESULTS_CSV, NPM12_GA_DATE, parseCsv, toBool, toNum } from './lib/work.mjs';
+import { BASELINES_CSV, EVIDENCE_RESULTS_DIR, GATE_RESULTS_CSV, NPM12_GA_DATE, parseCsv, parseFlags, toBool, toNum } from './lib/work.mjs';
 
 const SWEEP_THRESHOLDS = [20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 90];
 const pct = (value) => asPercent(Number.isFinite(value) ? value : 0);
@@ -26,8 +26,29 @@ function metricRow(label, rows) {
 
 const METRIC_HEADER = '| Configuration | Malicious | Benign | Precision | Recall | F1 | FP rate | TP | FP | FN | TN |\n|---|---|---|---|---|---|---|---|---|---|---|';
 
+/** GuardDog baseline rows from baselines.csv, or null when that baseline did not run. */
+async function guarddogRows() {
+  let baselines;
+  try {
+    baselines = parseCsv(await readFile(BASELINES_CSV, 'utf8'));
+  } catch {
+    return null;
+  }
+  const scanned = baselines.filter((row) => row.guarddogThreat !== undefined && row.guarddogThreat !== '');
+  if (scanned.length === 0) return null;
+  const asRows = (key) => scanned.map((row) => ({ isMalicious: toBool(row.isMalicious), flagged: toBool(row[key]) }));
+  return {
+    threat: asRows('guarddogThreat'),
+    any: asRows('guarddogAny'),
+    seconds: scanned.map((row) => toNum(row.guarddogSeconds)).filter(Number.isFinite),
+  };
+}
+
 async function main() {
-  const rows = parseCsv(await readFile(GATE_RESULTS_CSV, 'utf8'))
+  const flags = parseFlags(process.argv.slice(2));
+  const csvPath = typeof flags.csv === 'string' ? path.resolve(flags.csv) : GATE_RESULTS_CSV;
+  const tag = typeof flags.tag === 'string' ? `-${flags.tag}` : '';
+  const rows = parseCsv(await readFile(csvPath, 'utf8'))
     .filter((row) => row.verdict !== 'error' && row.score !== '')
     .map((row) => ({
       ...row,
@@ -55,8 +76,8 @@ async function main() {
   const installOnly = withFlag(dataset, (row) => row.hasInstallScript);
 
   const out = [];
-  out.push('# NUMBERS.md: evaluation results (single source of truth for §4)', '');
-  out.push(`Generated ${new Date().toISOString()} from \`${path.basename(GATE_RESULTS_CSV)}\`. `
+  out.push(`# NUMBERS${tag}.md: evaluation results (single source of truth for §4)`, '');
+  out.push(`Generated ${new Date().toISOString()} from \`${path.basename(csvPath)}\`. `
     + `Thresholds: warn ≥ ${warn}, fail ≥ ${fail}. Dynamic layer ${dynamicRan ? 'ran' : 'did not run'}.`, '');
   out.push(`Sample: ${malicious.length} malicious (${malicious.filter((row) => row.postGa).length} published on or after npm v12 GA ${NPM12_GA_DATE}; `
     + `${malicious.filter((row) => row.category === 'compromised_lib').length} compromised libraries, `
@@ -71,13 +92,11 @@ async function main() {
   }
   out.push(metricRow('Install-script blocking alone (npm v12 default)', installOnly));
   out.push(metricRow('npm audit (advisory-based; flags nothing on fresh malware)', withFlag(dataset, () => false)));
-  try {
-    const baselines = parseCsv(await readFile(BASELINES_CSV, 'utf8'));
-    const guarddog = baselines.filter((row) => row.guarddog !== '');
-    if (guarddog.length) {
-      out.push(metricRow('GuardDog (static rules)', guarddog.map((row) => ({ isMalicious: toBool(row.isMalicious), flagged: toBool(row.guarddog) }))));
-    }
-  } catch { /* baselines optional */ }
+  const guarddog = await guarddogRows();
+  if (guarddog) {
+    out.push(metricRow('GuardDog, threat rules only (local scan, no registry metadata)', guarddog.threat));
+    out.push(metricRow('GuardDog, any rule incl. capability-* notices', guarddog.any));
+  }
   out.push('');
 
   out.push('## Table 4 source: detected malicious samples by technique class (gate classification)', '');
@@ -140,6 +159,9 @@ async function main() {
     const seconds = secondsOf(subset);
     out.push(`| ${label}${dynamicRan ? ' (static + dynamic)' : ' (static)'} | ${subset.length} | ${mean(seconds).toFixed(2)} | ${median(seconds).toFixed(2)} | ${seconds.reduce((sum, value) => sum + value, 0).toFixed(0)} |`);
   }
+  if (guarddog?.seconds.length) {
+    out.push(`| GuardDog baseline (static, local scan) | ${guarddog.seconds.length} | ${mean(guarddog.seconds).toFixed(2)} | ${median(guarddog.seconds).toFixed(2)} | ${guarddog.seconds.reduce((sum, value) => sum + value, 0).toFixed(0)} |`);
+  }
   out.push('');
 
   out.push('## Figure 7 source: threshold sweep (fail threshold; flag = score ≥ t; dataset sample)', '');
@@ -168,21 +190,22 @@ async function main() {
   out.push('');
 
   await mkdir(EVIDENCE_RESULTS_DIR, { recursive: true });
-  await writeFile(path.join(EVIDENCE_RESULTS_DIR, 'NUMBERS.md'), `${out.join('\n')}\n`);
+  await writeFile(path.join(EVIDENCE_RESULTS_DIR, `NUMBERS${tag}.md`), `${out.join('\n')}\n`);
   const technique = recallByTechnique(combinedWarn.filter((row) => row.isMalicious).map((row) => ({ ...row, technique: row.flagged ? row.technique : 'undetected' })));
-  await writeFile(path.join(EVIDENCE_RESULTS_DIR, 'numbers.json'), `${JSON.stringify({
+  await writeFile(path.join(EVIDENCE_RESULTS_DIR, `numbers${tag}.json`), `${JSON.stringify({
     generatedAt: new Date().toISOString(), thresholds: DEFAULT_THRESHOLDS, dynamicRan,
     counts: { malicious: malicious.length, benign: benign.length, reconstructions: reconstructions.length },
     staticOnly: { warn: evaluate(staticWarn), fail: evaluate(staticFail) },
     combined: { warn: evaluate(combinedWarn), fail: evaluate(combinedFail) },
     installScriptOnly: evaluate(installOnly),
+    guarddog: guarddog ? { threat: evaluate(guarddog.threat), any: evaluate(guarddog.any) } : null,
     technique, sweep,
     layers: { staticHit, combinedHit, dynamicOnlyHit, dynamicObserved },
     reconstructions,
   }, null, 2)}\n`);
-  await copyFile(GATE_RESULTS_CSV, path.join(EVIDENCE_RESULTS_DIR, 'gate-results.csv'));
+  await copyFile(csvPath, path.join(EVIDENCE_RESULTS_DIR, `gate-results${tag}.csv`));
   try { await copyFile(BASELINES_CSV, path.join(EVIDENCE_RESULTS_DIR, 'baselines.csv')); } catch { /* optional */ }
-  process.stdout.write(`Wrote ${path.join(EVIDENCE_RESULTS_DIR, 'NUMBERS.md')} and numbers.json\n`);
+  process.stdout.write(`Wrote ${path.join(EVIDENCE_RESULTS_DIR, `NUMBERS${tag}.md`)} and numbers${tag}.json\n`);
 }
 
 main().catch((error) => {

@@ -26,3 +26,10 @@ export function inferPurpose(manifest) {
   if (looksPure) return PURPOSE.PURE;
   return PURPOSE.UNKNOWN;
 }
+
+/** True when the manifest installs a command-line executable (`bin` as a string or a non-empty map). */
+export function declaresExecutable(manifest) {
+  const bin = manifest?.bin;
+  if (typeof bin === 'string') return bin.length > 0;
+  return Boolean(bin) && typeof bin === 'object' && Object.keys(bin).length > 0;
+}

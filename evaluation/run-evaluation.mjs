@@ -11,7 +11,8 @@ import { appendFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/p
 import path from 'node:path';
 import { DEFAULT_THRESHOLDS, LOCKFILE_RULE_WEIGHTS } from '../src/config/constants.js';
 import { analyzePackageDirectory } from '../src/static/analyze-package.js';
-import { scorePackage } from '../src/static/scoring.js';
+import { hasLifecycleScript } from '../src/static/lifecycle-scripts.js';
+import { scorePackage, scoringContext } from '../src/static/scoring.js';
 import { verdictFor } from '../src/score/aggregate.js';
 import { runDynamicAnalysis } from '../src/dynamic/sandbox.js';
 import { classifyResult } from './lib/classify.mjs';
@@ -20,7 +21,6 @@ import {
   csvLine, parseCsv, parseFlags, readJsonIfExists,
 } from './lib/work.mjs';
 
-const LIFECYCLE = ['preinstall', 'install', 'postinstall'];
 const HEADERS = [
   'name', 'set', 'category', 'truth', 'isMalicious', 'date', 'postGa', 'hasInstallScript',
   'staticScore', 'dynamicDelta', 'score', 'verdict', 'flagged', 'technique', 'topRule', 'patterns',
@@ -67,9 +67,8 @@ async function buildWorklist(setFilter) {
   return items;
 }
 
-async function lifecycleFinding(manifest) {
-  const scripts = manifest.scripts ?? {};
-  const hasInstallScript = LIFECYCLE.some((name) => typeof scripts[name] === 'string');
+function lifecycleFinding(manifest) {
+  const hasInstallScript = hasLifecycleScript(manifest);
   const finding = hasInstallScript
     ? [{ rule: 'lockfile.lifecycle-script', weight: LOCKFILE_RULE_WEIGHTS['lockfile.lifecycle-script'], detail: 'declares a lifecycle script' }]
     : [];
@@ -79,8 +78,8 @@ async function lifecycleFinding(manifest) {
 async function scanOne(item, dynamic) {
   const started = performance.now();
   const analysis = await analyzePackageDirectory(item.dir);
-  const { hasInstallScript, finding } = await lifecycleFinding(analysis.manifest);
-  const scored = scorePackage(analysis.findings, finding, analysis.purpose);
+  const { hasInstallScript, finding } = lifecycleFinding(analysis.manifest);
+  const scored = scorePackage(analysis.findings, finding, analysis.purpose, scoringContext(analysis));
   const staticScore = scored.score;
 
   let dynamicDelta = 0;
@@ -108,9 +107,9 @@ async function scanOne(item, dynamic) {
   };
 }
 
-async function existingNames() {
+async function existingNames(csvPath) {
   try {
-    return new Set(parseCsv(await readFile(GATE_RESULTS_CSV, 'utf8')).map((row) => row.name));
+    return new Set(parseCsv(await readFile(csvPath, 'utf8')).map((row) => row.name));
   } catch {
     return new Set();
   }
@@ -122,15 +121,16 @@ async function main() {
   const resume = Boolean(flags.resume);
   const limit = flags.limit ? Number(flags.limit) : Infinity;
   const setFilter = typeof flags.set === 'string' ? flags.set : null;
+  const outCsv = typeof flags.out === 'string' ? path.resolve(flags.out) : GATE_RESULTS_CSV;
 
   await mkdir(RESULTS_DIR, { recursive: true });
   const worklist = await buildWorklist(setFilter);
   if (worklist.length === 0) throw new Error('nothing to scan; run sample-dataset.mjs and fetch-benign.mjs first');
 
-  const done = resume ? await existingNames() : new Set();
+  const done = resume ? await existingNames(outCsv) : new Set();
   let csvExists = false;
-  try { await stat(GATE_RESULTS_CSV); csvExists = true; } catch { /* new file */ }
-  if (!resume || !csvExists) await writeFile(GATE_RESULTS_CSV, `${HEADERS.join(',')}\n`);
+  try { await stat(outCsv); csvExists = true; } catch { /* new file */ }
+  if (!resume || !csvExists) await writeFile(outCsv, `${HEADERS.join(',')}\n`);
 
   const pending = worklist.filter((item) => !done.has(item.name));
   process.stdout.write(`Scanning ${Math.min(pending.length, limit)} of ${pending.length} pending (${worklist.length} total)`
@@ -150,7 +150,7 @@ async function main() {
         dynamicAttempts: '', filesScanned: '' };
       process.stdout.write(`  error ${item.name}: ${error.message}\n`);
     }
-    await appendFile(GATE_RESULTS_CSV, csvLine(HEADERS, row));
+    await appendFile(outCsv, csvLine(HEADERS, row));
     if (row.verdict in counts) counts[row.verdict] += 1;
     scanned += 1;
     if (scanned % 10 === 0 || row.set === 'reconstruction') {
@@ -158,7 +158,7 @@ async function main() {
     }
   }
   process.stdout.write(`\nDone: ${scanned} scanned (pass ${counts.pass}, warn ${counts.warn}, fail ${counts.fail}). `
-    + `CSV: ${GATE_RESULTS_CSV}\nNext: node evaluation/metrics.mjs\n`);
+    + `CSV: ${outCsv}\nNext: node evaluation/metrics.mjs --csv ${outCsv}\n`);
 }
 
 main().catch((error) => {

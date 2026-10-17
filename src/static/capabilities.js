@@ -13,7 +13,7 @@ import {
   SHELL_DOWNLOAD_PATTERN,
   VM_CALLS,
 } from '../config/constants.js';
-import { hasObfuscatedIdentifiers, isHighEntropyString, matchC2Indicators } from './indicators.js';
+import { hasObfuscatedIdentifiers, hasStringArrayRotation, isHighEntropyString, matchC2Indicators } from './indicators.js';
 import { memberExpressionText, walk } from './walk.js';
 
 const NODE_PREFIX = 'node:';
@@ -293,16 +293,14 @@ export function extractCapabilities(ast, sourceText, relativePath) {
     }
   });
 
+  const fileLevelFinding = (capability, evidence) => ({
+    capability, family: 'obfuscation', file: relativePath, line: 1, scope: 'module', enclosing: '<file>', evidence,
+  });
   if (hasObfuscatedIdentifiers(sourceText)) {
-    findings.push({
-      capability: 'obfuscation.identifiers',
-      family: 'obfuscation',
-      file: relativePath,
-      line: 1,
-      scope: 'module',
-      enclosing: '<file>',
-      evidence: 'identifiers renamed to _0x… style',
-    });
+    findings.push(fileLevelFinding('obfuscation.identifiers', 'identifiers renamed to _0x… style'));
+  }
+  if (hasStringArrayRotation(sourceText)) {
+    findings.push(fileLevelFinding('obfuscation.string-array', 'javascript-obfuscator string-array rotation loop: while (!![])'));
   }
 
   return findings;
