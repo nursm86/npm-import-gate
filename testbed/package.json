@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "express": "^5.1.0",
-    "helmet": "^8.1.0"
+    "helmet": "^8.1.0",
+    "@recon/p1-import-loader": "file:../reconstructions/p1-import-loader",
+    "@recon/p2-sorted-btree": "file:../reconstructions/p2-sorted-btree"
   }
 }
