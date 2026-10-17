@@ -13,7 +13,7 @@
     "import-gate": "./src/cli.js"
   },
   "scripts": {
-    "test": "node --test",
+    "test": "node --test test/*.test.js",
     "gate": "node src/cli.js scan",
     "rules": "node src/cli.js rules",
     "verify:detection": "node evaluation/verify-detection.mjs",

@@ -42,8 +42,11 @@ jobs:
         working-directory: testbed
         run: node ../src/cli.js scan . --format sarif --out ../gate.sarif
 
+      # Code scanning upload needs GitHub Advanced Security on private repositories. It is
+      # allowed to fail so that the job's verdict always reflects the gate itself.
       - name: Upload findings to code scanning
         if: always()
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: gate.sarif

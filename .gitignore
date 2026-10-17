@@ -3,8 +3,11 @@ node_modules/
 *.log
 .DS_Store
 gate-report.*
+gate.sarif
 evaluation/work/
+evaluation/results/work/
 evaluation/results/*.csv
+evaluation/results/*.log
 !evaluation/results/.gitkeep
 reconstructions/*/node_modules/
 testbed/node_modules/
