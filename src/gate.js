@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { allowancesFromNames, findAllowance, readProjectAllowList } from './config/allow-list.js';
 import { DEFAULT_THRESHOLDS } from './config/constants.js';
 import { readLockfile, toPackageNodes } from './resolve/lockfile.js';
 import { evaluateLockfileNode } from './resolve/lockfile-rules.js';
@@ -24,6 +25,8 @@ async function toolVersion() {
  * @property {string[]} [only]             restrict to these package names
  * @property {boolean} [includeDev]        scan devDependencies too (default true: CI installs them)
  * @property {string[]} [allowedRegistryHosts]
+ * @property {string[]} [allow]            package names excused from the verdict, in addition to
+ *                                         the project's committed `importGate.allow` list
  */
 
 /**
@@ -39,7 +42,8 @@ export async function runGate(projectDir, options = {}) {
   let nodes = toPackageNodes(lockfile, absoluteProjectDir);
   if (!includeDev) nodes = nodes.filter((node) => !node.isDev);
   if (options.only?.length) nodes = nodes.filter((node) => options.only.includes(node.name));
-  logger.info({ packages: nodes.length, dynamic: Boolean(options.dynamic) }, 'gate started');
+  const allowList = [...(await readProjectAllowList(absoluteProjectDir)), ...allowancesFromNames(options.allow)];
+  logger.info({ packages: nodes.length, dynamic: Boolean(options.dynamic), allowed: allowList.length }, 'gate started');
 
   const packages = [];
   for (const node of nodes) {
@@ -63,6 +67,7 @@ export async function runGate(projectDir, options = {}) {
       purpose: analysis.purpose,
       score: scored.score,
       verdict: verdictFor(scored.score, thresholds),
+      allowance: findAllowance(allowList, node.name),
       patterns: [...new Set(scored.patterns)],
       contributions: scored.contributions,
       findings: analysis.findings,

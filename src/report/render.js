@@ -1,4 +1,5 @@
 import { VERDICT } from '../config/constants.js';
+import { isAllowedException } from '../score/aggregate.js';
 import { ruleCatalogue } from '../static/rules.js';
 
 const SARIF_VERSION = '2.1.0';
@@ -22,17 +23,19 @@ function markdownRowFor(result) {
     .slice(0, MAX_CONTRIBUTIONS_IN_MARKDOWN)
     .map((contribution) => `${contribution.source} (+${Math.round(contribution.points)})`)
     .join(', ');
-  return `| ${result.name}@${result.version} | ${result.verdict.toUpperCase()} | ${result.score} | ${result.patterns.join(', ') || '–'} | ${topReasons || '–'} |`;
+  const verdict = isAllowedException(result) ? `${result.verdict.toUpperCase()} (allowed)` : result.verdict.toUpperCase();
+  return `| ${result.name}@${result.version} | ${verdict} | ${result.score} | ${result.patterns.join(', ') || '–'} | ${topReasons || '–'} |`;
 }
 
 export function renderMarkdown(report) {
   const { summary, packages, project } = report;
   const flagged = packages.filter((result) => result.verdict !== VERDICT.PASS);
+  const allowedCount = summary.counts.allowed ? ` · allowed ${summary.counts.allowed}` : '';
   const lines = [
     `# ${TOOL_NAME} report`,
     '',
     `Project: \`${project.name ?? project.dir}\` · packages scanned: ${summary.packagesScanned} · `
-      + `pass ${summary.counts.pass} · warn ${summary.counts.warn} · fail ${summary.counts.fail} · `
+      + `pass ${summary.counts.pass} · warn ${summary.counts.warn} · fail ${summary.counts.fail}${allowedCount} · `
       + `overall: **${summary.overall.toUpperCase()}**`,
     '',
     `Thresholds: fail ≥ ${summary.thresholds.fail}, warn ≥ ${summary.thresholds.warn}. Dynamic analysis: ${report.dynamicEnabled ? 'on' : 'off'}.`,
@@ -46,6 +49,7 @@ export function renderMarkdown(report) {
     lines.push('');
     for (const result of flagged.filter((item) => item.verdict === VERDICT.FAIL)) {
       lines.push(`## ${result.name}@${result.version}`);
+      if (result.allowance) lines.push(`- allowed: ${result.allowance.reason}`);
       for (const contribution of result.contributions) {
         const where = contribution.finding ? ` — \`${contribution.finding.evidence}\`` : '';
         lines.push(`- **${contribution.source}** +${Math.round(contribution.points)}: ${contribution.reason}${where}`);
@@ -74,9 +78,10 @@ function sarifResultsFor(result, projectDir) {
     .filter((contribution) => contribution.finding)
     .map((contribution) => ({
       ruleId: contribution.source,
-      level: SARIF_LEVEL[result.verdict],
+      level: isAllowedException(result) ? SARIF_LEVEL[VERDICT.PASS] : SARIF_LEVEL[result.verdict],
       message: {
-        text: `${result.name}@${result.version} score ${result.score} (${result.verdict}): ${contribution.reason}`,
+        text: `${result.name}@${result.version} score ${result.score} (${result.verdict}`
+          + `${result.allowance ? `, allowed: ${result.allowance.reason}` : ''}): ${contribution.reason}`,
       },
       locations: [
         {
